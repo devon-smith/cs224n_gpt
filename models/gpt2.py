@@ -22,23 +22,23 @@ class GPT2Model(GPTPreTrainedModel):
     super().__init__(config)
     self.config = config
 
-    # Embedding layers.
+    # Embedding layers
     self.word_embedding = nn.Embedding(config.vocab_size, config.hidden_size, padding_idx=config.pad_token_id)
     self.pos_embedding = nn.Embedding(config.max_position_embeddings, config.hidden_size)
     self.embed_dropout = nn.Dropout(config.hidden_dropout_prob)
 
-    # Register position_ids (1, len position emb) to buffer because it is a constant.
+    # Register position_ids (1, len position emb) to buffer because it is a constant
     position_ids = torch.arange(config.max_position_embeddings).unsqueeze(0)
     self.register_buffer('position_ids', position_ids)
 
     # GPT-2 layers.
     self.gpt_layers = nn.ModuleList([GPT2Layer(config) for _ in range(config.num_hidden_layers)])
 
-    # [CLS] token transformations.
+    # [CLS] token transformations
     self.pooler_dense = nn.Linear(config.hidden_size, config.hidden_size)
     self.pooler_af = nn.Tanh()
 
-    # Final layer norm.
+    # Final layer norm
     self.final_layer_norm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
 
     self.init_weights()
@@ -68,15 +68,15 @@ class GPT2Model(GPTPreTrainedModel):
     hidden_states: the output from the embedding layer [batch_size, seq_len, hidden_size]
     attention_mask: [batch_size, seq_len]
     """
-    # Get the extended attention mask for self-attention.
-    # Returns extended_attention_mask of size [batch_size, 1, 1, seq_len].
+    # Get the extended attention mask for self-attention
+    # Returns extended_attention_mask of size [batch_size, 1, 1, seq_len]
     # Distinguishes between non-padding tokens (with a value of 0) and padding tokens
-    # (with a value of a large negative number).
+    # (with a value of a large negative number)
     extended_attention_mask: torch.Tensor = get_extended_attention_mask(attention_mask, self.dtype)
 
-    # Pass the hidden states through the encoder layers.
+    # Pass the hidden states through the encoder layers
     for i, layer_module in enumerate(self.gpt_layers):
-      # Feed the encoding from the last bert_layer to the next.
+      # Feed the encoding from the last bert_layer to the next
       hidden_states = layer_module(hidden_states, extended_attention_mask)
 
     return hidden_states
@@ -86,14 +86,14 @@ class GPT2Model(GPTPreTrainedModel):
     input_ids: [batch_size, seq_len], seq_len is the max length of the batch
     attention_mask: same size as input_ids, 1 represents non-padding tokens, 0 represents padding tokens
     """
-    # Get the embedding for each input token.
+    # Get the embedding for each input token
     embedding_output = self.embed(input_ids=input_ids)
 
-    # Feed to a transformer (a stack of GPTLayers).
+    # Feed to a transformer (a stack of GPTLayers)
     sequence_output = self.encode(embedding_output, attention_mask=attention_mask)
     sequence_output = self.final_layer_norm(sequence_output)
 
-    # Get the hidden state of the final token.
+    # Get the hidden state of the final token
     last_non_pad_idx = attention_mask.sum(dim=1) - 1  # Subtract 1 to get last index
     last_token = sequence_output[torch.arange(sequence_output.shape[0]), last_non_pad_idx]
 
@@ -118,7 +118,7 @@ class GPT2Model(GPTPreTrainedModel):
     our_model = GPT2Model(GPT2Config(hidden_size=d, num_hidden_layers=l,num_attention_heads=num_heads,
                                      intermediate_size=d*3)).eval()
 
-    # Load word and positional embeddings.
+    # Load word and positional embeddings
     our_model.word_embedding.load_state_dict(gpt_model.wte.state_dict())
     our_model.pos_embedding.load_state_dict(gpt_model.wpe.state_dict())
 
@@ -132,25 +132,25 @@ class GPT2Model(GPTPreTrainedModel):
       l.self_attention.value.weight.data = gpt_model.state_dict()[f'h.{i}.attn.c_attn.weight'][:, d*2:].T
       l.self_attention.value.bias.data = gpt_model.state_dict()[f'h.{i}.attn.c_attn.bias'][d*2:]
 
-      # Remap final dense layer in MHA.
+      # Remap final dense layer in MHA
       l.attention_dense.weight.data = gpt_model.state_dict()[f'h.{i}.attn.c_proj.weight'].T
       l.attention_dense.bias.data = gpt_model.state_dict()[f'h.{i}.attn.c_proj.bias']
 
-      # Remap attention layer norm.
+      # Remap attention layer norm
       l.attention_layer_norm.weight.data = gpt_model.state_dict()[f'h.{i}.ln_1.weight']
       l.attention_layer_norm.bias.data = gpt_model.state_dict()[f'h.{i}.ln_1.bias']
 
-      # Remap post-attention MLP layers.
+      # Remap post-attention MLP layers
       l.interm_dense.weight.data = gpt_model.state_dict()[f'h.{i}.mlp.c_fc.weight'].T
       l.interm_dense.bias.data = gpt_model.state_dict()[f'h.{i}.mlp.c_fc.bias']
       l.out_dense.weight.data = gpt_model.state_dict()[f'h.{i}.mlp.c_proj.weight'].T
       l.out_dense.bias.data = gpt_model.state_dict()[f'h.{i}.mlp.c_proj.bias']
 
-      # Remap second layer norm weights.
+      # Remap second layer norm weights
       l.out_layer_norm.weight.data = gpt_model.state_dict()[f'h.{i}.ln_2.weight']
       l.out_layer_norm.bias.data = gpt_model.state_dict()[f'h.{i}.ln_2.bias']
 
-    # Remap the final layer norm values.
+    # Remap the final layer norm values
     our_model.final_layer_norm.weight.data = gpt_model.state_dict()['ln_f.weight']
     our_model.final_layer_norm.bias.data = gpt_model.state_dict()['ln_f.bias']
 
