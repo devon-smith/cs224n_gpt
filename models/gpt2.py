@@ -47,19 +47,20 @@ class GPT2Model(GPTPreTrainedModel):
     input_shape = input_ids.size()
     seq_length = input_shape[1]
 
-    inputs_embeds = None
-
-    ### YOUR CODE HERE
-    raise NotImplementedError
-
+    # Get word embeddings from input token ids
+    inputs_embeds = self.word_embedding(input_ids)
 
     pos_ids = self.position_ids[:, :seq_length]
-    pos_embeds = None
 
-    ### TODO: Use pos_ids to get position embedding from self.pos_embedding into pos_embeds.
-    ###       Then, add two embeddings together; then apply dropout and return.
-    ### YOUR CODE HERE
-    raise NotImplementedError
+    # Get position embeddings
+    pos_embeds = self.pos_embedding(pos_ids)
+
+    # Add word embeddings and position embeddings
+    embeddings = inputs_embeds + pos_embeds
+
+    # Apply dropout and return
+    embeddings = self.embed_dropout(embeddings)
+    return embeddings
 
 
   def encode(self, hidden_states, attention_mask):
@@ -105,8 +106,10 @@ class GPT2Model(GPTPreTrainedModel):
 
       return hidden_state(s) * E^T
     """
-    ### YOUR CODE HERE
-    raise NotImplementedError
+    # hidden_state: [batch_size, seq_len, hidden_size] or [batch_size, hidden_size]
+    # word_embedding.weight: [vocab_size, hidden_size]
+    # Output: [batch_size, seq_len, vocab_size] or [batch_size, vocab_size]
+    return torch.matmul(hidden_state, self.word_embedding.weight.T)
 
 
   @classmethod

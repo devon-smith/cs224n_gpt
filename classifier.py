@@ -53,19 +53,26 @@ class GPT2SentimentClassifier(torch.nn.Module):
       elif config.fine_tune_mode == 'full-model':
         param.requires_grad = True
 
-    ### TODO: Create any instance variables you need to classify the sentiment of BERT embeddings.
-    ### YOUR CODE HERE
-    raise NotImplementedError
-
+    # Dropout layer before the classification head
+    self.dropout = torch.nn.Dropout(config.hidden_dropout_prob)
+    # Linear layer to project GPT hidden states to num_labels classes
+    self.classifier = torch.nn.Linear(config.hidden_size, self.num_labels)
 
   def forward(self, input_ids, attention_mask):
     '''Takes a batch of sentences and returns logits for sentiment classes'''
+    # Get GPT2 output - this returns a dict with 'last_hidden_state' and 'last_token'
+    gpt_output = self.gpt(input_ids, attention_mask)
 
-    ### TODO: The final GPT contextualized embedding is the hidden state of the last token.
-    ###       HINT: You should consider what is an appropriate return value given that
-    ###       the training loop currently uses F.cross_entropy as the loss function.
-    ### YOUR CODE HERE
-    raise NotImplementedError
+    # Get the last token's representation for classification
+    last_token_embedding = gpt_output['last_token']
+
+    # Apply dropout
+    last_token_embedding = self.dropout(last_token_embedding)
+
+    # Project to class logits
+    logits = self.classifier(last_token_embedding)
+
+    return logits
 
 
 

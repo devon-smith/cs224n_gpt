@@ -32,9 +32,48 @@ class CausalSelfAttention(nn.Module):
     return proj
 
   def attention(self, key, query, value, attention_mask):
+    """
+    Compute scaled dot-product attention with causal masking.
 
-    ### YOUR CODE HERE
-    raise NotImplementedError
+    Args:
+      key: [bs, num_attention_heads, seq_len, attention_head_size]
+      query: [bs, num_attention_heads, seq_len, attention_head_size]
+      value: [bs, num_attention_heads, seq_len, attention_head_size]
+      attention_mask: [bs, 1, 1, seq_len] - padding mask (0 for padding, large negative for real tokens after processing)
+
+    Returns:
+      attn_output: [bs, seq_len, hidden_state]
+    """
+    # Get dimensions
+    bs, num_heads, seq_len, head_size = query.size()
+
+    # Compute attention scores: Q * K^T / sqrt(d_k)
+    # [bs, num_heads, seq_len, head_size] @ [bs, num_heads, head_size, seq_len] -> [bs, num_heads, seq_len, seq_len]
+    attention_scores = torch.matmul(query, key.transpose(-1, -2))
+    attention_scores = attention_scores / (head_size ** 0.5)
+
+    # Create causal mask (upper triangular) to prevent attending to future tokens
+    # Mask positions where j > i (future positions)
+    causal_mask = torch.triu(torch.ones(seq_len, seq_len, device=attention_scores.device), diagonal=1).bool()
+    attention_scores = attention_scores.masked_fill(causal_mask, float('-inf'))
+
+    # Apply the padding attention mask (already in the form where padding positions have large negative values)
+    attention_scores = attention_scores + attention_mask
+
+    # Apply softmax to get attention weights
+    attention_probs = torch.softmax(attention_scores, dim=-1)
+
+    # Apply dropout to attention weights
+    attention_probs = self.dropout(attention_probs)
+
+    # Compute attention output: attention_probs @ V
+    # [bs, num_heads, seq_len, seq_len] @ [bs, num_heads, seq_len, head_size] -> [bs, num_heads, seq_len, head_size]
+    attn_output = torch.matmul(attention_probs, value)
+
+    # Reshape back to [bs, seq_len, hidden_state]
+    attn_output = rearrange(attn_output, 'b h t d -> b t (h d)')
+
+    return attn_output
 
 
   def forward(self, hidden_states, attention_mask):
