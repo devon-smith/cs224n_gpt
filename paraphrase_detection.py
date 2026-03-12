@@ -50,7 +50,12 @@ class ParaphraseGPT(nn.Module):
 
   def __init__(self, args):
     super().__init__()
-    self.gpt = GPT2Model.from_pretrained(model=args.model_size, d=args.d, l=args.l, num_heads=args.num_heads)
+    self.gpt = GPT2Model.from_pretrained(
+      model=args.model_size, d=args.d, l=args.l, num_heads=args.num_heads,
+      attention_type=getattr(args, 'attention_type', 'standard'),
+      window_size=getattr(args, 'window_size', 128),
+      num_kv_heads=getattr(args, 'num_kv_heads', 0),
+    )
     self.paraphrase_detection_head = nn.Linear(args.d, 2)  # Paraphrase detection has two outputs: 1 (yes) or 0 (no).
 
     # By default, fine-tune the full model.
@@ -154,7 +159,7 @@ def train(args):
 def test(args):
   """Evaluate your model on the dev and test datasets; save the predictions to disk."""
   device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
-  saved = torch.load(args.filepath)
+  saved = torch.load(args.filepath, weights_only=False)
 
   model = ParaphraseGPT(saved['args'])
   model.load_state_dict(saved['model'])
@@ -180,12 +185,14 @@ def test(args):
   with open(args.para_dev_out, "w+") as f:
     f.write(f"id \t Predicted_Is_Paraphrase \n")
     for p, s in zip(dev_para_sent_ids, dev_para_y_pred):
-      f.write(f"{p}, {s} \n")
+      token_id = 8505 if s == 1 else 3919
+      f.write(f"{p}, {token_id} \n")
 
   with open(args.para_test_out, "w+") as f:
     f.write(f"id \t Predicted_Is_Paraphrase \n")
     for p, s in zip(test_para_sent_ids, test_para_y_pred):
-      f.write(f"{p}, {s} \n")
+      token_id = 8505 if s == 1 else 3919
+      f.write(f"{p}, {token_id} \n")
 
 
 def get_args():
@@ -206,6 +213,13 @@ def get_args():
   parser.add_argument("--model_size", type=str,
                       help="The model size as specified on hugging face. DO NOT use the xl model.",
                       choices=['gpt2', 'gpt2-medium', 'gpt2-large'], default='gpt2')
+  parser.add_argument("--attention_type", type=str,
+                      choices=['standard', 'flash', 'sliding_window', 'mixed'],
+                      default='standard')
+  parser.add_argument("--window_size", type=int, default=128,
+                      help="Local window size for sliding_window and mixed attention")
+  parser.add_argument("--num_kv_heads", type=int, default=0,
+                      help="Number of KV heads for GQA (0 = same as num_attention_heads)")
 
   args = parser.parse_args()
   return args

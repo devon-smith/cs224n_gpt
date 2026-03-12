@@ -43,7 +43,12 @@ class GPT2SentimentClassifier(torch.nn.Module):
   def __init__(self, config):
     super(GPT2SentimentClassifier, self).__init__()
     self.num_labels = config.num_labels
-    self.gpt = GPT2Model.from_pretrained()
+    self.gpt = GPT2Model.from_pretrained(
+      attention_type=getattr(config, 'attention_type', 'standard'),
+      window_size=getattr(config, 'window_size', 128),
+      num_kv_heads=getattr(config, 'num_kv_heads', 0),
+      num_global_tokens=getattr(config, 'num_global_tokens', 0),
+    )
 
     # Pretrain mode does not require updating GPT paramters.
     assert config.fine_tune_mode in ["last-linear-layer", "full-model"]
@@ -60,18 +65,14 @@ class GPT2SentimentClassifier(torch.nn.Module):
 
   def forward(self, input_ids, attention_mask):
     '''Takes a batch of sentences and returns logits for sentiment classes'''
-    # Get GPT2 output - this returns a dict with 'last_hidden_state' and 'last_token'
+    # Get GPT2 output (returns a dict with 'last_hidden_state' and 'last_token')
     gpt_output = self.gpt(input_ids, attention_mask)
-
     # Get the last token's representation for classification
     last_token_embedding = gpt_output['last_token']
-
     # Apply dropout
     last_token_embedding = self.dropout(last_token_embedding)
-
     # Project to class logits
     logits = self.classifier(last_token_embedding)
-
     return logits
 
 
@@ -208,9 +209,9 @@ def model_eval(dataloader, model, device):
   return acc, f1, y_pred, y_true, sents, sent_ids
 
 
-# Evaluate the model on test examples.
+# Evaluate the model on test examples
 def model_test_eval(dataloader, model, device):
-  model.eval()  # Switch to eval model, will turn off randomness like dropout.
+  model.eval()  # Switch to eval model, will turn off randomness like dropout
   y_pred = []
   sents = []
   sent_ids = []
@@ -266,7 +267,10 @@ def train(args):
             'num_labels': num_labels,
             'hidden_size': 768,
             'data_dir': '.',
-            'fine_tune_mode': args.fine_tune_mode}
+            'fine_tune_mode': args.fine_tune_mode,
+            'attention_type': args.attention_type,
+            'window_size': args.window_size,
+            'num_kv_heads': args.num_kv_heads}
 
   config = SimpleNamespace(**config)
 
@@ -315,7 +319,7 @@ def train(args):
 def test(args):
   with torch.no_grad():
     device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
-    saved = torch.load(args.filepath)
+    saved = torch.load(args.filepath, weights_only=False)
     config = saved['model_config']
     model = GPT2SentimentClassifier(config)
     model.load_state_dict(saved['model'])
@@ -363,6 +367,15 @@ def get_args():
   parser.add_argument("--hidden_dropout_prob", type=float, default=0.3)
   parser.add_argument("--lr", type=float, help="learning rate, default lr for 'pretrain': 1e-3, 'finetune': 1e-5",
                       default=1e-3)
+  parser.add_argument("--attention_type", type=str,
+                      choices=['standard', 'flash', 'sliding_window', 'mixed'],
+                      default='standard')
+  parser.add_argument("--window_size", type=int, default=128,
+                      help="Local window size for sliding_window and mixed attention")
+  parser.add_argument("--num_kv_heads", type=int, default=0,
+                      help="Number of KV heads for GQA (0 = same as num_attention_heads)")
+  parser.add_argument("--num_global_tokens", type=int, default=0,
+                      help="Number of leading global tokens for sliding_window attention (Longformer-style)")
 
   args = parser.parse_args()
   return args
@@ -384,6 +397,10 @@ if __name__ == "__main__":
     dev='data/ids-sst-dev.csv',
     test='data/ids-sst-test-student.csv',
     fine_tune_mode=args.fine_tune_mode,
+    attention_type=args.attention_type,
+    window_size=args.window_size,
+    num_kv_heads=args.num_kv_heads,
+    num_global_tokens=args.num_global_tokens,
     dev_out='predictions/' + args.fine_tune_mode + '-sst-dev-out.csv',
     test_out='predictions/' + args.fine_tune_mode + '-sst-test-out.csv'
   )
@@ -405,6 +422,10 @@ if __name__ == "__main__":
     dev='data/ids-cfimdb-dev.csv',
     test='data/ids-cfimdb-test-student.csv',
     fine_tune_mode=args.fine_tune_mode,
+    attention_type=args.attention_type,
+    window_size=args.window_size,
+    num_kv_heads=args.num_kv_heads,
+    num_global_tokens=args.num_global_tokens,
     dev_out='predictions/' + args.fine_tune_mode + '-cfimdb-dev-out.csv',
     test_out='predictions/' + args.fine_tune_mode + '-cfimdb-test-out.csv'
   )

@@ -94,7 +94,7 @@ class GPT2Model(GPTPreTrainedModel):
     sequence_output = self.final_layer_norm(sequence_output)
 
     # Get the hidden state of the final token
-    last_non_pad_idx = attention_mask.sum(dim=1) - 1  # Subtract 1 to get last index
+    last_non_pad_idx = attention_mask.sum(dim=1).long() - 1  # Subtract 1 to get last index
     last_token = sequence_output[torch.arange(sequence_output.shape[0]), last_non_pad_idx]
 
     return {'last_hidden_state': sequence_output, 'last_token': last_token}
@@ -113,10 +113,10 @@ class GPT2Model(GPTPreTrainedModel):
 
 
   @classmethod
-  def from_pretrained(cls, model='gpt2', d=768, l=12, num_heads=12):
+  def from_pretrained(cls, model='gpt2', d=768, l=12, num_heads=12, **kwargs):
     gpt_model = OpenAIGPT2Model.from_pretrained(model).eval()
-    our_model = GPT2Model(GPT2Config(hidden_size=d, num_hidden_layers=l,num_attention_heads=num_heads,
-                                     intermediate_size=d*3)).eval()
+    our_model = GPT2Model(GPT2Config(hidden_size=d, num_hidden_layers=l, num_attention_heads=num_heads,
+                                     intermediate_size=d*3, **kwargs)).eval()
 
     # Load word and positional embeddings
     our_model.word_embedding.load_state_dict(gpt_model.wte.state_dict())

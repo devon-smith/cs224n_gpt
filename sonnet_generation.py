@@ -46,7 +46,12 @@ class SonnetGPT(nn.Module):
 
   def __init__(self, args):
     super().__init__()
-    self.gpt = GPT2Model.from_pretrained(model=args.model_size, d=args.d, l=args.l, num_heads=args.num_heads)
+    self.gpt = GPT2Model.from_pretrained(
+      model=args.model_size, d=args.d, l=args.l, num_heads=args.num_heads,
+      attention_type=getattr(args, 'attention_type', 'standard'),
+      window_size=getattr(args, 'window_size', 128),
+      num_kv_heads=getattr(args, 'num_kv_heads', 0),
+    )
     self.tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -60,7 +65,7 @@ class SonnetGPT(nn.Module):
     not just the last token! This will allow our model to learn the natural language distribution that composes sonnets,
     not just the distribution over next tokens for the last token!
     """
-    # Get GPT2 output - 'last_hidden_state' contains embeddings for all tokens
+    # 'last_hidden_state' contains embeddings for all tokens
     gpt_output = self.gpt(input_ids, attention_mask)
 
     # Get the full sequence of hidden states [batch_size, seq_len, hidden_size]
@@ -78,7 +83,7 @@ class SonnetGPT(nn.Module):
       return param.device
 
   @torch.no_grad()
-  def generate(self, encoding, temperature=0.7, top_p=0.9, max_length=128):
+  def generate(self, encoding, temperature=1.2, top_p=0.9, max_length=128):
     """
     Generates an original sonnet using top-p sampling and softmax temperature.
 
@@ -88,7 +93,6 @@ class SonnetGPT(nn.Module):
     """
     token_ids = encoding.to(self.get_device())
     attention_mask = torch.ones(token_ids.shape, dtype=torch.int64).to(self.get_device())
-
 
     for _ in range(max_length):
       # Forward pass to get logits
@@ -245,6 +249,13 @@ def get_args():
   parser.add_argument("--lr", type=float, help="learning rate", default=1e-5)
   parser.add_argument("--model_size", type=str, help="The model size as specified on hugging face.",
                       choices=['gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'], default='gpt2')
+  parser.add_argument("--attention_type", type=str,
+                      choices=['standard', 'flash', 'sliding_window', 'mixed'],
+                      default='standard')
+  parser.add_argument("--window_size", type=int, default=128,
+                      help="Local window size for sliding_window and mixed attention")
+  parser.add_argument("--num_kv_heads", type=int, default=0,
+                      help="Number of KV heads for GQA (0 = same as num_attention_heads)")
 
   args = parser.parse_args()
   return args
@@ -274,4 +285,9 @@ if __name__ == "__main__":
   args.filepath = f'{args.epochs}-{args.lr}-sonnet.pt'  # Save path.
   seed_everything(args.seed)  # Fix the seed for reproducibility.
   train(args)
+  # Generate test sonnets (default: sonnets_held_out.txt -> generated_sonnets.txt)
+  generate_submission_sonnets(args)
+  # Generate dev sonnets (sonnets_held_out_dev.txt -> generated_sonnets_dev.txt)
+  args.held_out_sonnet_path = 'data/sonnets_held_out_dev.txt'
+  args.sonnet_out = 'predictions/generated_sonnets_dev.txt'
   generate_submission_sonnets(args)

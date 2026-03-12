@@ -41,10 +41,8 @@ class AdamW(Optimizer):
 
                 # State should be stored in this dictionary.
                 state = self.state[p]
-
                 # Access hyperparameters from the `group` dictionary.
                 alpha = group["lr"]
-
 
                 # Get hyperparameters
                 beta1, beta2 = group["betas"]
@@ -66,13 +64,12 @@ class AdamW(Optimizer):
                 m = state["m"]
                 v = state["v"]
 
-                # Update biased first moment estimate: m_t = beta1 * m_{t-1} + (1 - beta1) * g_t
+                # m_t = beta1 * m_{t-1} + (1 - beta1) * g_t
                 m.mul_(beta1).add_(grad, alpha=1 - beta1)
 
-                # Update biased second raw moment estimate: v_t = beta2 * v_{t-1} + (1 - beta2) * g_t^2
+                # v_t = beta2 * v_{t-1} + (1 - beta2) * g_t^2
                 v.mul_(beta2).addcmul_(grad, grad, value=1 - beta2)
 
-                # Apply bias correction using the efficient version
                 # alpha_t = alpha * sqrt(1 - beta2^t) / (1 - beta1^t)
                 if correct_bias:
                     bias_correction1 = 1 - beta1 ** t
@@ -81,10 +78,10 @@ class AdamW(Optimizer):
                 else:
                     step_size = alpha
 
-                # Update parameters: theta_t = theta_{t-1} - step_size * m_t / (sqrt(v_t) + eps)
+                # Update params: theta_t = theta_{t-1} - step_size * m_t / (sqrt(v_t) + eps)
                 p.data.addcdiv_(m, v.sqrt().add_(eps), value=-step_size)
 
-                # Apply weight decay (decoupled from gradient update)
+                # weight decay (decoupled from gradient update)
                 if weight_decay > 0:
                     p.data.add_(p.data, alpha=-alpha * weight_decay)
 
