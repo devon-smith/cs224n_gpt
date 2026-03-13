@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from torch.utils.checkpoint import checkpoint
 from transformers import GPT2Model as OpenAIGPT2Model
 
 from config import GPT2Config
@@ -31,6 +32,8 @@ class GPT2Model(GPTPreTrainedModel):
     position_ids = torch.arange(config.max_position_embeddings).unsqueeze(0)
     self.register_buffer('position_ids', position_ids)
 
+    # Reset layer counter so reloaded configs get correct indices for mixed attention
+    config._layer_counter = 0
     # GPT-2 layers.
     self.gpt_layers = nn.ModuleList([GPT2Layer(config) for _ in range(config.num_hidden_layers)])
 
@@ -76,8 +79,13 @@ class GPT2Model(GPTPreTrainedModel):
 
     # Pass the hidden states through the encoder layers
     for i, layer_module in enumerate(self.gpt_layers):
-      # Feed the encoding from the last bert_layer to the next
-      hidden_states = layer_module(hidden_states, extended_attention_mask)
+      if self.training and getattr(self.config, 'gradient_checkpointing', False):
+        hidden_states = checkpoint(
+            layer_module, hidden_states, extended_attention_mask,
+            use_reentrant=False,
+        )
+      else:
+        hidden_states = layer_module(hidden_states, extended_attention_mask)
 
     return hidden_states
 
@@ -114,6 +122,10 @@ class GPT2Model(GPTPreTrainedModel):
 
   @classmethod
   def from_pretrained(cls, model='gpt2', d=768, l=12, num_heads=12, **kwargs):
+    # Auto-enable gradient checkpointing for memory-heavy attention variants
+    attn_type = kwargs.get('attention_type', 'standard')
+    if attn_type in ('sliding_window', 'mixed'):
+      kwargs.setdefault('gradient_checkpointing', True)
     gpt_model = OpenAIGPT2Model.from_pretrained(model).eval()
     our_model = GPT2Model(GPT2Config(hidden_size=d, num_hidden_layers=l, num_attention_heads=num_heads,
                                      intermediate_size=d*3, **kwargs)).eval()

@@ -51,6 +51,7 @@ class SonnetGPT(nn.Module):
       attention_type=getattr(args, 'attention_type', 'standard'),
       window_size=getattr(args, 'window_size', 128),
       num_kv_heads=getattr(args, 'num_kv_heads', 0),
+      num_global_tokens=getattr(args, 'num_global_tokens', 0),
     )
     self.tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
     self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -256,6 +257,8 @@ def get_args():
                       help="Local window size for sliding_window and mixed attention")
   parser.add_argument("--num_kv_heads", type=int, default=0,
                       help="Number of KV heads for GQA (0 = same as num_attention_heads)")
+  parser.add_argument("--num_global_tokens", type=int, default=0,
+                      help="Number of leading global tokens for sliding_window attention (Longformer-style)")
 
   args = parser.parse_args()
   return args
@@ -280,14 +283,30 @@ def add_arguments(args):
   return args
 
 
+def _sonnet_suffix(args):
+  """Build a suffix for sonnet output filenames based on attention config."""
+  parts = []
+  if args.attention_type != 'standard':
+    parts.append(args.attention_type)
+  if args.attention_type in ('sliding_window', 'mixed') and args.window_size != 128:
+    parts.append(f'ws{args.window_size}')
+  elif args.attention_type in ('sliding_window', 'mixed'):
+    parts.append(f'ws{args.window_size}')
+  if getattr(args, 'num_global_tokens', 0) > 0:
+    parts.append(f'g{args.num_global_tokens}')
+  return '-' + '-'.join(parts) if parts else ''
+
+
 if __name__ == "__main__":
   args = get_args()
-  args.filepath = f'{args.epochs}-{args.lr}-sonnet.pt'  # Save path.
+  suffix = _sonnet_suffix(args)
+  args.filepath = f'{args.epochs}-{args.lr}-sonnet{suffix}.pt'  # Save path.
+  args.sonnet_out = f'predictions/generated_sonnets{suffix}.txt'
   seed_everything(args.seed)  # Fix the seed for reproducibility.
   train(args)
-  # Generate test sonnets (default: sonnets_held_out.txt -> generated_sonnets.txt)
+  # Generate test sonnets
   generate_submission_sonnets(args)
-  # Generate dev sonnets (sonnets_held_out_dev.txt -> generated_sonnets_dev.txt)
+  # Generate dev sonnets
   args.held_out_sonnet_path = 'data/sonnets_held_out_dev.txt'
-  args.sonnet_out = 'predictions/generated_sonnets_dev.txt'
+  args.sonnet_out = f'predictions/generated_sonnets_dev{suffix}.txt'
   generate_submission_sonnets(args)

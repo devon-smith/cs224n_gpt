@@ -3,19 +3,24 @@ Benchmarks speed and memory for each attention variant.
 Run in Colab: python benchmark.py
 """
 
+import csv
 import torch
 import time
 from models.gpt2 import GPT2Model
 from config import GPT2Config
 
 VARIANTS = [
-  ('standard',       {}),
-  ('flash',          {}),
-  ('sliding_window', {'window_size': 64}),
-  ('sliding_window', {'window_size': 128}),
-  ('mixed',          {'window_size': 64}),
-  ('gqa_4heads',     {'attention_type': 'standard', 'num_kv_heads': 4}),
-  ('gqa_flash',      {'attention_type': 'flash',    'num_kv_heads': 4}),
+  ('standard',             {'attention_type': 'standard'}),
+  ('flash',                {'attention_type': 'flash'}),
+  ('sliding_window_w64',   {'attention_type': 'sliding_window', 'window_size': 64}),
+  ('sliding_window_w128',  {'attention_type': 'sliding_window', 'window_size': 128}),
+  ('sw_w128_g2',           {'attention_type': 'sliding_window', 'window_size': 128,
+                            'num_global_tokens': 2}),
+  ('sw_w128_g8',           {'attention_type': 'sliding_window', 'window_size': 128,
+                            'num_global_tokens': 8}),
+  ('mixed_w64',            {'attention_type': 'mixed', 'window_size': 64}),
+  ('gqa_4heads',           {'attention_type': 'standard', 'num_kv_heads': 4}),
+  ('gqa_flash',            {'attention_type': 'flash',    'num_kv_heads': 4}),
 ]
 
 SEQ_LENS    = [128, 256, 512, 1024]
@@ -24,8 +29,8 @@ NUM_RUNS    = 30
 WARMUP_RUNS = 5
 
 
-def benchmark(label, attention_type, seq_len, extra_kwargs):
-  config = GPT2Config(attention_type=attention_type, **extra_kwargs)
+def benchmark(label, seq_len, config_kwargs):
+  config = GPT2Config(**config_kwargs)
   model = GPT2Model(config).cuda().eval()
 
   input_ids = torch.randint(0, 50257, (BATCH_SIZE, seq_len)).cuda()
@@ -59,8 +64,16 @@ if __name__ == '__main__':
   print(f"{'Variant':25s} | {'Seq':>6} | {'Time':>8} | {'Memory':>9}")
   print("-" * 60)
 
+  rows = []
   for seq_len in SEQ_LENS:
     for label, kwargs in VARIANTS:
-      attn_type = kwargs.pop('attention_type', label.split('_')[0])
-      benchmark(label, attn_type, seq_len, kwargs)
+      elapsed_ms, memory_gb = benchmark(label, seq_len, kwargs)
+      rows.append({'variant': label, 'seq_len': seq_len,
+                   'time_ms': round(elapsed_ms, 2), 'memory_gb': round(memory_gb, 4)})
     print()
+
+  with open('benchmark_results.csv', 'w', newline='') as f:
+    writer = csv.DictWriter(f, fieldnames=['variant', 'seq_len', 'time_ms', 'memory_gb'])
+    writer.writeheader()
+    writer.writerows(rows)
+  print("Wrote benchmark_results.csv")

@@ -186,22 +186,23 @@ def model_eval(dataloader, model, device):
   y_pred = []
   sents = []
   sent_ids = []
-  for step, batch in enumerate(tqdm(dataloader, desc=f'eval', disable=TQDM_DISABLE)):
-    b_ids, b_mask, b_labels, b_sents, b_sent_ids = batch['token_ids'], batch['attention_mask'], \
-                                                   batch['labels'], batch['sents'], batch['sent_ids']
+  with torch.no_grad():
+    for step, batch in enumerate(tqdm(dataloader, desc=f'eval', disable=TQDM_DISABLE)):
+      b_ids, b_mask, b_labels, b_sents, b_sent_ids = batch['token_ids'], batch['attention_mask'], \
+                                                     batch['labels'], batch['sents'], batch['sent_ids']
 
-    b_ids = b_ids.to(device)
-    b_mask = b_mask.to(device)
+      b_ids = b_ids.to(device)
+      b_mask = b_mask.to(device)
 
-    logits = model(b_ids, b_mask)
-    logits = logits.detach().cpu().numpy()
-    preds = np.argmax(logits, axis=1).flatten()
+      logits = model(b_ids, b_mask)
+      logits = logits.detach().cpu().numpy()
+      preds = np.argmax(logits, axis=1).flatten()
 
-    b_labels = b_labels.flatten()
-    y_true.extend(b_labels)
-    y_pred.extend(preds)
-    sents.extend(b_sents)
-    sent_ids.extend(b_sent_ids)
+      b_labels = b_labels.flatten()
+      y_true.extend(b_labels)
+      y_pred.extend(preds)
+      sents.extend(b_sents)
+      sent_ids.extend(b_sent_ids)
 
   f1 = f1_score(y_true, y_pred, average='macro')
   acc = accuracy_score(y_true, y_pred)
@@ -215,20 +216,21 @@ def model_test_eval(dataloader, model, device):
   y_pred = []
   sents = []
   sent_ids = []
-  for step, batch in enumerate(tqdm(dataloader, desc=f'eval', disable=TQDM_DISABLE)):
-    b_ids, b_mask, b_sents, b_sent_ids = batch['token_ids'], batch['attention_mask'], \
-                                         batch['sents'], batch['sent_ids']
+  with torch.no_grad():
+    for step, batch in enumerate(tqdm(dataloader, desc=f'eval', disable=TQDM_DISABLE)):
+      b_ids, b_mask, b_sents, b_sent_ids = batch['token_ids'], batch['attention_mask'], \
+                                           batch['sents'], batch['sent_ids']
 
-    b_ids = b_ids.to(device)
-    b_mask = b_mask.to(device)
+      b_ids = b_ids.to(device)
+      b_mask = b_mask.to(device)
 
-    logits = model(b_ids, b_mask)
-    logits = logits.detach().cpu().numpy()
-    preds = np.argmax(logits, axis=1).flatten()
+      logits = model(b_ids, b_mask)
+      logits = logits.detach().cpu().numpy()
+      preds = np.argmax(logits, axis=1).flatten()
 
-    y_pred.extend(preds)
-    sents.extend(b_sents)
-    sent_ids.extend(b_sent_ids)
+      y_pred.extend(preds)
+      sents.extend(b_sents)
+      sent_ids.extend(b_sent_ids)
 
   return y_pred, sents, sent_ids
 
@@ -270,7 +272,8 @@ def train(args):
             'fine_tune_mode': args.fine_tune_mode,
             'attention_type': args.attention_type,
             'window_size': args.window_size,
-            'num_kv_heads': args.num_kv_heads}
+            'num_kv_heads': args.num_kv_heads,
+            'num_global_tokens': getattr(args, 'num_global_tokens', 0)}
 
   config = SimpleNamespace(**config)
 
@@ -381,13 +384,26 @@ def get_args():
   return args
 
 
+def _build_checkpoint_suffix(args):
+  """Build a suffix for checkpoint filenames based on attention config."""
+  parts = []
+  if args.attention_type != 'standard':
+    parts.append(args.attention_type)
+  if args.attention_type in ('sliding_window', 'mixed') and args.window_size != 128:
+    parts.append(f'ws{args.window_size}')
+  if args.num_global_tokens > 0:
+    parts.append(f'g{args.num_global_tokens}')
+  return '-' + '-'.join(parts) if parts else ''
+
+
 if __name__ == "__main__":
   args = get_args()
   seed_everything(args.seed)
+  suffix = _build_checkpoint_suffix(args)
 
   print('Training Sentiment Classifier on SST...')
   config = SimpleNamespace(
-    filepath='sst-classifier.pt',
+    filepath=f'sst-classifier{suffix}.pt',
     lr=args.lr,
     use_gpu=args.use_gpu,
     epochs=args.epochs,
@@ -412,7 +428,7 @@ if __name__ == "__main__":
 
   print('Training Sentiment Classifier on cfimdb...')
   config = SimpleNamespace(
-    filepath='cfimdb-classifier.pt',
+    filepath=f'cfimdb-classifier{suffix}.pt',
     lr=args.lr,
     use_gpu=args.use_gpu,
     epochs=args.epochs,

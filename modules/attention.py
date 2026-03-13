@@ -92,39 +92,29 @@ class CausalSelfAttention(nn.Module):
       attn_output = rearrange(attn_output, 'b h t d -> b t (h d)')
       return attn_output
 
-    # Standard / Sliding Window / Mixed (non-flash path)
-    # Scaled dot-product scores: [bs, num_heads, seq_len, seq_len]
+    # Memory-efficient sliding window: O(n * w) instead of O(n^2)
+    if effective_type == 'sliding_window':
+      from modules.sliding_window_attention import sliding_window_attention
+      attn_output = sliding_window_attention(
+        query, key, value,
+        window_size=self.window_size,
+        attention_mask=attention_mask,
+        dropout_p=self.dropout.p if self.training else 0.0,
+        num_global_tokens=self.num_global_tokens,
+        training=self.training,
+      )
+      attn_output = rearrange(attn_output, 'b h t d -> b t (h d)')
+      return attn_output
+
+    # Standard full causal attention: O(n^2)
     attention_scores = torch.matmul(query, key.transpose(-1, -2))
     attention_scores = attention_scores / (head_size ** 0.5)
 
-    # Causal mask: block future positions (j > i)
     causal_mask = torch.triu(
       torch.ones(seq_len, seq_len, device=attention_scores.device), diagonal=1
     ).bool()
-
-    # Sliding window: additionally block positions more than window_size steps back
-    if effective_type == 'sliding_window':
-      window_mask = torch.tril(
-        torch.ones(seq_len, seq_len, device=attention_scores.device),
-        diagonal=-(self.window_size + 1)
-      ).bool()
-      causal_mask = causal_mask | window_mask
-
-      # Global tokens: the first num_global_tokens positions attend to all
-      # previous positions and are attended to by all subsequent positions.
-      if self.num_global_tokens > 0:
-        g = min(self.num_global_tokens, seq_len)
-        # Global tokens can attend to all past positions (unmask their rows)
-        causal_mask[:g, :] = False
-        # All tokens can attend to global tokens (unmask their columns)
-        causal_mask[:, :g] = False
-        # Re-apply causal constraint: still block future positions for global tokens
-        for gi in range(g):
-          causal_mask[gi, gi+1:] = True
-
     attention_scores = attention_scores.masked_fill(causal_mask, float('-inf'))
 
-    # Padding mask (already formatted as large negatives for padding positions)
     attention_scores = attention_scores + attention_mask
 
     attention_probs = torch.softmax(attention_scores, dim=-1)

@@ -55,6 +55,7 @@ class ParaphraseGPT(nn.Module):
       attention_type=getattr(args, 'attention_type', 'standard'),
       window_size=getattr(args, 'window_size', 128),
       num_kv_heads=getattr(args, 'num_kv_heads', 0),
+      num_global_tokens=getattr(args, 'num_global_tokens', 0),
     )
     self.paraphrase_detection_head = nn.Linear(args.d, 2)  # Paraphrase detection has two outputs: 1 (yes) or 0 (no).
 
@@ -220,6 +221,8 @@ def get_args():
                       help="Local window size for sliding_window and mixed attention")
   parser.add_argument("--num_kv_heads", type=int, default=0,
                       help="Number of KV heads for GQA (0 = same as num_attention_heads)")
+  parser.add_argument("--num_global_tokens", type=int, default=0,
+                      help="Number of leading global tokens for sliding_window attention (Longformer-style)")
 
   args = parser.parse_args()
   return args
