@@ -10,34 +10,49 @@ os.makedirs('figures', exist_ok=True)
 seq_lens = [128, 256, 512, 1024]
 
 time_ms = {
-    'Standard':            [11.4, 23.5, 55.6, 141.3],
-    'Flash':               [10.4, 19.4, 41.3,  86.6],
-    'Sliding Window':      [11.4, 23.5, 55.7, 141.6],
-    'Mixed':               [11.5, 23.6, 55.5, 141.2],
-    'GQA (4 KV heads)':    [10.7, 21.9, 51.3, 134.7],
-    'GQA + Flash':         [ 9.8, 21.9, 51.4, 134.9],
+    'Standard':              [11.1, 23.2, 54.8, 140.4],
+    'Flash':                 [10.1, 18.8, 40.7,  85.6],
+    'Sliding Window':        [11.2, 23.2, 55.0, 141.2],
+    'Mixed':                 [11.3, 23.3, 55.1, 141.5],
+    'Eff. Sliding (w=64)':   [11.3, 23.3, 55.3, 142.4],
+    'GQA (4 KV heads)':      [10.6, 21.7, 51.5, 135.8],
+    'GQA + Flash':           [ 9.7, 21.7, 51.4, 136.1],
 }
 
 memory_gb = {
-    'Standard':            [0.534, 0.562, 0.665, 1.018],
-    'Flash':               [0.535, 0.554, 0.595, 0.677],
-    'Sliding Window':      [0.535, 0.564, 0.665, 1.018],
-    'Mixed':               [0.535, 0.564, 0.665, 1.019],
-    'GQA (4 KV heads)':    [0.497, 0.526, 0.627, 0.980],
-    'GQA + Flash':         [0.497, 0.526, 0.627, 0.980],
+    'Standard':              [0.534, 0.562, 0.665, 1.018],
+    'Flash':                 [0.535, 0.554, 0.595, 0.677],
+    'Sliding Window':        [0.535, 0.564, 0.665, 1.018],
+    'Mixed':                 [0.535, 0.564, 0.665, 1.019],
+    'Eff. Sliding (w=64)':   [0.535, 0.564, 0.665, 1.018],
+    'GQA (4 KV heads)':      [0.497, 0.526, 0.627, 0.980],
+    'GQA + Flash':           [0.497, 0.526, 0.627, 0.980],
+}
+
+# Attention-only memory delta (MB) — isolates the score matrix footprint
+attn_only_delta_mb = {
+    'Standard':              [ 14.2,  41.0, 132.4, 466.6],
+    'Sliding Window (w=64)': [ 14.2,  41.0, 132.6, 467.7],
+    'Eff. Sliding (w=64)':   [ 16.6,  30.8,  59.3, 116.1],
+    'Eff. Sliding (w=128)':  [ 22.1,  39.5,  74.7, 143.9],
 }
 
 colors = {
-    'Standard':         '#2c7bb6',
-    'Flash':            '#d7191c',
-    'Sliding Window':   '#1a9641',
-    'Mixed':            '#ff7f00',
-    'GQA (4 KV heads)': '#984ea3',
-    'GQA + Flash':      '#a65628',
+    'Standard':              '#2c7bb6',
+    'Flash':                 '#d7191c',
+    'Sliding Window':        '#1a9641',
+    'Sliding Window (w=64)': '#1a9641',
+    'Mixed':                 '#ff7f00',
+    'Eff. Sliding (w=64)':   '#e6550d',
+    'Eff. Sliding (w=128)':  '#fdae6b',
+    'GQA (4 KV heads)':      '#984ea3',
+    'GQA + Flash':           '#a65628',
 }
 markers = {
     'Standard': 'o', 'Flash': 's', 'Sliding Window': '^',
-    'Mixed': 'D', 'GQA (4 KV heads)': 'v', 'GQA + Flash': 'P',
+    'Sliding Window (w=64)': '^', 'Mixed': 'D',
+    'Eff. Sliding (w=64)': 'P', 'Eff. Sliding (w=128)': 'X',
+    'GQA (4 KV heads)': 'v', 'GQA + Flash': 'h',
 }
 
 # ── Plot 1: Benchmark line plots ──────────────────────────────────────────────
@@ -70,6 +85,30 @@ plt.savefig('figures/benchmark.pdf', bbox_inches='tight', dpi=150)
 plt.savefig('figures/benchmark.png', bbox_inches='tight', dpi=150)
 plt.close()
 print("Saved figures/benchmark.pdf + .png")
+
+# ── Plot 1b: Attention-only memory delta ──────────────────────────────────────
+fig, ax = plt.subplots(figsize=(6.5, 4))
+ls_map = {
+    'Standard':              '-',
+    'Sliding Window (w=64)': '--',
+    'Eff. Sliding (w=64)':   '-',
+    'Eff. Sliding (w=128)':  '--',
+}
+for name, deltas in attn_only_delta_mb.items():
+    ax.plot(seq_lens, deltas, label=name,
+            color=colors[name], marker=markers[name],
+            linestyle=ls_map[name], linewidth=2, markersize=6)
+ax.set_xlabel('Sequence Length')
+ax.set_ylabel('Attention Memory Delta (MB)')
+ax.set_title('Score Matrix Memory: Standard vs. Efficient Sliding Window')
+ax.set_xticks(seq_lens)
+ax.legend(fontsize=9)
+ax.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.savefig('figures/attn_memory.pdf', bbox_inches='tight', dpi=150)
+plt.savefig('figures/attn_memory.png', bbox_inches='tight', dpi=150)
+plt.close()
+print("Saved figures/attn_memory.pdf + .png")
 
 # ── Plot 2: CFIMDB + SST bar chart ────────────────────────────────────────────
 variants     = ['Last-linear\n(standard)', 'Full-model\n(standard)', 'Full-model\n(flash)',
