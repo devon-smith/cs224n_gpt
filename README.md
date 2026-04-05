@@ -1,52 +1,46 @@
-# CS 224N Default Final Project: Build GPT-2
+# GPT-2 From Scratch
 
-This is the default final project for the Stanford CS 224N class. Please refer to the project handout on the course
-website for detailed instructions and an overview of the codebase.
+A ground-up implementation of GPT-2, fine-tuned on three downstream tasks — and then an excuse to go deep on attention mechanisms and figure out which ones are actually worth the hype.
 
-This project comprises two parts. In the first part, you will implement some important components of the GPT-2 model to
-better understand its architecture.
-In the second part, you will use the token embeddings produced by your GPT-2 model on two downstream tasks: paraphrase
-detection and sonnet generation. You will implement extensions to improve your model's performance on these tasks.
+## What This Is
 
-In broad strokes, Part 1 of this project targets:
+We built GPT-2 from scratch — multi-head causal self-attention, transformer layers with pre-LayerNorm, residual connections, AdamW, pretrained weight loading, the whole thing. Then we pointed it at three tasks to see how it holds up:
 
-* modules/attention.py: Missing code blocks.
-* modules/gpt2_layer.py: Missing code blocks.
-* models/gpt2.py: Missing code blocks.
-* classifier.py: Missing code blocks.
-* optimizer.py: Missing code blocks.
+- **Sentiment Classification** — fine-tuning on SST and CFIMDB datasets, both last-layer-only and full-model. CFIMDB hits 0.97–0.98 with full fine-tuning. SST is harder and less generous with training data, landing around 0.46–0.52 across variants.
+- **Paraphrase Detection** — cloze-style classification on the Quora paraphrase dataset, where the model reads a sentence pair and predicts "yes" or "no." Straightforward in theory, fiddly in practice.
+- **Sonnet Generation** — autoregressive language modeling to generate Shakespeare-style sonnets. The results are... recognizably Shakespearean, which is about all you can ask from a model this size.
 
-To test Part 1, you will run:
+## The Interesting Part: Attention Variants
 
-* `optimizer_test.py`: To test your implementation of `optimizer.py`.
-* `sanity_check.py`: To test your implementation of GPT models.
-* `classifier.py` : To perform sentiment classification using your models.
+Beyond task accuracy, we benchmarked multiple attention mechanisms across sequence lengths 128–1024, measuring latency and peak memory. This is where most of the engineering effort went.
 
-In Part 2 of this project, you will use GPT2 (via cloze-style classification) detect if one sentence is a paraphrase of 
-another as well as generate sonnets via autoregressive language modeling.  
+| Variant | What It Does |
+|---|---|
+| Standard | Full causal self-attention, O(T²). The baseline everyone's trying to beat. |
+| Flash | PyTorch's `scaled_dot_product_attention` with `is_causal=True`. Spoiler: it wins. |
+| Sliding Window | Efficient O(T·w) using `unfold()` + chunked einsum. Doesn't look at the full sequence — just a local window. |
+| Mixed | Alternates full causal (even layers) and sliding window (odd layers). Best of both, in theory. |
+| GQA | Grouped query attention — reduces KV heads from 12→4, paired with flash. Fewer heads, less memory. |
+| Global Tokens | First *g* tokens attend globally; the rest attend locally within a window. A compromise that actually works. |
 
-To test Part 2, you will run:
+## Key Results
 
-* `paraphrase_detection.py`: To perform paraphrase detection. 
-* `sonnet_generation.py`: To perform sonnet generation.
+- **Flash attention** is fastest and most memory-efficient end-to-end — 54ms / 673MB at seq=1024 vs. 78ms / 1014MB for standard. Not close.
+- **Sliding window** achieves ~70% reduction in attention score matrix memory (143MB vs 466MB at seq=1024, w=128). The trick was using `unfold()` instead of materializing the full N×N matrix, which we learned the hard way matters.
+- **CFIMDB** accuracy hits 0.97–0.98 with full-model fine-tuning. SST is tougher — 0.46–0.52 across variants.
 
-Important: Adjust training hyperparameters, particularly batch size, according to your GPU's specifications to optimize performance and prevent out-of-memory errors.
+## Infrastructure
 
-## Pre-testing instructions
+- `benchmark.py` — profiles latency and peak memory per variant/sequence length, outputs CSV
+- `make_plots.py` — generates figures for benchmark results, attention memory scaling, and sentiment accuracy
+- `modal_train.py` — A100-80GB training pipeline on Modal (sentiment → paraphrase → sonnet generation)
+- Gradient checkpointing for memory-heavy attention variants
+- `torch.no_grad()` guards on evaluation paths, because forgetting those once is enough
 
-While there are missing code blocks that you need to implement in both of these files, the main focus of this second 
-part are the extensions: how you modify your GPT2 model to improve its ability to determine if one sentence is a 
-paraphrase of another as well as its ability to generate sonnets. 
+## Credits
 
-## Setup instructions
-
-Follow `setup.sh` to properly setup a conda environment and install dependencies.
-
-## Acknowledgement
-
-This project is adapted from a prior year's CS 224N
-project [Implement BERT](https://web.stanford.edu/class/archive/cs/cs224n/cs224n.1246/project/default-final-project-handout-minbert-spr2024-updated.pdf)
-.
-
-Parts of the code are from the [`transformers`](https://github.com/huggingface/transformers)
-library ([Apache License 2.0](./LICENSE)).
+- [GPT-2 (OpenAI)](https://openai.com/research/better-language-models)
+- [Stanford Sentiment Treebank](https://nlp.stanford.edu/sentiment/)
+- [Quora Question Pairs](https://quoradata.quora.com/First-Quora-Dataset-Release-Question-Pairs)
+- [Modal](https://modal.com/)
+- [PyTorch](https://pytorch.org/)
